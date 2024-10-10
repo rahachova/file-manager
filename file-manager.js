@@ -23,9 +23,14 @@ class FileManager {
   }
 
   handleUserInput(data) {
-    if (data.toString().startsWith(".exit")) {
-      this.handleExit();
+    switch (data.toString().substring(0, data.length - 2)) {
+      case ".exit":
+        this.handleExit();
+        break;
+      default:
+        stdout.write("Invalid input\n");
     }
+
     this.displayCurrentPath();
   }
 
