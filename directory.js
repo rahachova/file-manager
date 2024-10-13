@@ -1,6 +1,5 @@
 import { homedir } from "os";
 
-function getPath() {
+export function getHomePath() {
   return homedir();
 }
-export default getPath;
