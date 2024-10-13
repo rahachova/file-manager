@@ -1,18 +1,18 @@
 import { getHomePath } from "./directory.js";
 import { stdin, stdout } from "node:process";
 import path from "path";
-import { createReadStream, createWriteStream } from "node:fs";
+import { access, readdir, lstat } from "node:fs/promises";
+import { handleOSInfo } from "./os-operations.js";
 import {
-  access,
-  readdir,
-  lstat,
-  writeFile,
-  rename,
-  rm,
-} from "node:fs/promises";
-import { EOL, cpus, homedir, userInfo, arch } from "os";
-import { createHash } from "node:crypto";
-import { createBrotliCompress, createBrotliDecompress } from "node:zlib";
+  handleReadAndPrint,
+  handleAddNewFile,
+  handleRenameFile,
+  handleCopyFile,
+  handleMoveFile,
+  handleDeleteFile,
+} from "./basic-operations.js";
+import { handleFileHash } from "./hash-operations.js";
+import { handleCompress, handleDecompress } from "./compress-operations.js";
 
 class FileManager {
   constructor(userName = "Guest") {
@@ -59,242 +59,6 @@ class FileManager {
     console.table([...folders.sort(), ...files.sort()]);
   }
 
-  async handleReadAndPrint(command) {
-    const pathCommand = command.split(" ")[1];
-    if (pathCommand) {
-      const pathToRead = path.resolve(this.currentPath, pathCommand);
-      const stream = createReadStream(pathToRead, {
-        encoding: "utf-8",
-      });
-      stream.on("data", (chunk) => {
-        stdout.write(chunk + "\n");
-      });
-      stream.on("error", () => {
-        this.handleOperationFail();
-      });
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  async handleAddNewFile(command) {
-    const pathCommand = command.split(" ")[1];
-
-    if (pathCommand) {
-      const pathToAdd = path.resolve(this.currentPath, pathCommand);
-      try {
-        await writeFile(pathToAdd, "", { flag: "ax" });
-      } catch (_) {
-        this.handleOperationFail();
-      }
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  async handleRenameFile(command) {
-    const nameCommand = command.split(" ")[1];
-    const newNameCommand = command.split(" ")[2];
-
-    if (nameCommand && newNameCommand) {
-      const nameCommandPath = path.resolve(this.currentPath, nameCommand);
-      const newNameCommandPath = path.resolve(this.currentPath, newNameCommand);
-      try {
-        await rename(nameCommandPath, newNameCommandPath);
-      } catch (_) {
-        this.handleOperationFail();
-      }
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  async handleCopyFile(command) {
-    const pathCommand = command.split(" ")[1];
-    const newPathCommand = command.split(" ")[2];
-
-    if (pathCommand && newPathCommand) {
-      const pathCommandPath = path.resolve(this.currentPath, pathCommand);
-      const newPathCommandPath = path.resolve(this.currentPath, newPathCommand);
-      const readStream = createReadStream(pathCommandPath);
-      readStream.on("error", () => {
-        this.handleOperationFail();
-      });
-      const writeStream = createWriteStream(newPathCommandPath);
-      writeStream.on("error", () => {
-        this.handleOperationFail();
-      });
-      readStream.pipe(writeStream);
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  async handleMoveFile(command) {
-    const pathCommand = command.split(" ")[1];
-    const newPathCommand = command.split(" ")[2];
-    const fileName = path.basename(pathCommand);
-
-    if (pathCommand && newPathCommand) {
-      try {
-        await new Promise((resolve, reject) => {
-          const pathCommandPath = path.resolve(this.currentPath, pathCommand);
-          const newPathCommandPath = path.resolve(
-            this.currentPath,
-            newPathCommand,
-            fileName
-          );
-          const readStream = createReadStream(pathCommandPath);
-          readStream.on("error", () => {
-            reject();
-          });
-          const writeStream = createWriteStream(newPathCommandPath);
-          writeStream.on("error", () => {
-            reject();
-          });
-          writeStream.on("finish", async () => {
-            await rm(pathCommandPath);
-            resolve();
-          });
-          readStream.pipe(writeStream);
-        });
-      } catch (_) {
-        this.handleOperationFail();
-      }
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  async handleDeleteFile(command) {
-    const pathCommand = command.split(" ")[1];
-
-    if (pathCommand) {
-      try {
-        const pathCommandPath = path.resolve(this.currentPath, pathCommand);
-        await rm(pathCommandPath);
-      } catch (_) {
-        this.handleOperationFail();
-      }
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  handleOSInfo(command) {
-    const commandArgs = command.split(" ");
-    if (commandArgs.find((arg) => arg === "--EOL")) {
-      stdout.write(`End of Line character is: ${EOL}\n`);
-    } else if (commandArgs.find((arg) => arg === "--cpus")) {
-      cpus().forEach((cpu, index) => {
-        const clockRateGHz = (cpu.speed / 1000).toFixed(2);
-        stdout.write(`CPU ${index + 1}:\n`);
-        stdout.write(`  Model: ${cpu.model}\n`);
-        stdout.write(`  Clock rate: ${clockRateGHz} GHz\n`);
-      });
-    } else if (commandArgs.find((arg) => arg === "--homedir")) {
-      stdout.write(`Home Directory: ${homedir()}\n`);
-    } else if (commandArgs.find((arg) => arg === "--username")) {
-      stdout.write(`Current System Username: ${userInfo().username}\n`);
-    } else if (commandArgs.find((arg) => arg === "--architecture")) {
-      stdout.write(`CPU Architecture: ${arch}\n`);
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  async handleFileHash(command) {
-    const pathCommand = command.split(" ")[1];
-
-    if (pathCommand) {
-      try {
-        const hash = await new Promise((resolve, reject) => {
-          const pathCommandPath = path.resolve(this.currentPath, pathCommand);
-          const hash = createHash("sha256");
-          const readStream = createReadStream(pathCommandPath, {
-            encoding: "utf-8",
-          });
-          readStream.on("data", (chunk) => {
-            hash.update(chunk);
-          });
-          readStream.on("end", () => {
-            resolve(hash.digest("hex"));
-          });
-          readStream.on("error", () => {
-            reject();
-          });
-        });
-
-        stdout.write(`${hash}\n`);
-      } catch (_) {
-        this.handleOperationFail();
-      }
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
-  async handleCompress(command) {
-    const pathCommand = command.split(" ")[1];
-    const newPathCommand = command.split(" ")[2];
-
-    if (pathCommand && newPathCommand) {
-      try {
-        const pathCommandPath = path.resolve(this.currentPath, pathCommand);
-        const newPathCommandPath = path.resolve(
-          this.currentPath,
-          newPathCommand
-        );
-        const readableStream = createReadStream(pathCommandPath);
-        readableStream.on("error", () => {
-          this.handleOperationFail();
-        });
-        const writebleStream = createWriteStream(newPathCommandPath);
-        writebleStream.on("error", () => {
-          this.handleOperationFail();
-        });
-        const brotli = createBrotliCompress();
-
-        readableStream.pipe(brotli).pipe(writebleStream);
-      } catch (_) {
-        this.handleOperationFail();
-      }
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-  async handleDecompress(command) {
-    const pathCommand = command.split(" ")[1];
-    const newPathCommand = command.split(" ")[2];
-
-    if (pathCommand && newPathCommand) {
-      try {
-        const pathCommandPath = path.resolve(this.currentPath, pathCommand);
-        const newPathCommandPath = path.resolve(
-          this.currentPath,
-          newPathCommand
-        );
-
-        const readableStream = createReadStream(pathCommandPath);
-        readableStream.on("error", () => {
-          this.handleOperationFail();
-        });
-        const writebleStream = createWriteStream(newPathCommandPath);
-        writebleStream.on("error", () => {
-          this.handleOperationFail();
-        });
-
-        const brotli = createBrotliDecompress();
-
-        readableStream.pipe(brotli).pipe(writebleStream);
-      } catch (_) {
-        this.handleOperationFail();
-      }
-    } else {
-      this.handleInvalidInput();
-    }
-  }
-
   displayGreeting() {
     stdout.write(`Welcome to the File Manager, ${this.userName}!\n`);
   }
@@ -319,25 +83,70 @@ class FileManager {
     } else if (command === "ls") {
       await this.handleReadDirectory(command);
     } else if (command.startsWith("cat")) {
-      await this.handleReadAndPrint(command);
+      await handleReadAndPrint(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("add")) {
-      await this.handleAddNewFile(command);
+      await handleAddNewFile(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("rn")) {
-      await this.handleRenameFile(command);
+      await handleRenameFile(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("cp")) {
-      await this.handleCopyFile(command);
+      await handleCopyFile(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("mv")) {
-      await this.handleMoveFile(command);
+      await handleMoveFile(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("rm")) {
-      await this.handleDeleteFile(command);
+      await handleDeleteFile(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("os")) {
-      this.handleOSInfo(command);
+      handleOSInfo(command, this.handleInvalidInput.bind(this));
     } else if (command.startsWith("hash")) {
-      await this.handleFileHash(command);
+      await handleFileHash(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("compress")) {
-      await this.handleCompress(command);
+      await handleCompress(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else if (command.startsWith("decompress")) {
-      await this.handleDecompress(command);
+      await handleDecompress(
+        command,
+        this.currentPath,
+        this.handleInvalidInput.bind(this),
+        this.handleOperationFail.bind(this)
+      );
     } else {
       this.handleInvalidInput();
     }
