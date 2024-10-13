@@ -11,6 +11,8 @@ import {
   rm,
 } from "node:fs/promises";
 import { EOL, cpus, homedir, userInfo, arch } from "os";
+import { createHash } from "node:crypto";
+import { createBrotliCompress, createBrotliDecompress } from "node:zlib";
 
 class FileManager {
   constructor(userName = "Guest") {
@@ -201,6 +203,98 @@ class FileManager {
     }
   }
 
+  async handleFileHash(command) {
+    const pathCommand = command.split(" ")[1];
+
+    if (pathCommand) {
+      try {
+        const hash = await new Promise((resolve, reject) => {
+          const pathCommandPath = path.resolve(this.currentPath, pathCommand);
+          const hash = createHash("sha256");
+          const readStream = createReadStream(pathCommandPath, {
+            encoding: "utf-8",
+          });
+          readStream.on("data", (chunk) => {
+            hash.update(chunk);
+          });
+          readStream.on("end", () => {
+            resolve(hash.digest("hex"));
+          });
+          readStream.on("error", () => {
+            reject();
+          });
+        });
+
+        stdout.write(`${hash}\n`);
+      } catch (_) {
+        this.handleOperationFail();
+      }
+    } else {
+      this.handleInvalidInput();
+    }
+  }
+
+  async handleCompress(command) {
+    const pathCommand = command.split(" ")[1];
+    const newPathCommand = command.split(" ")[2];
+
+    if (pathCommand && newPathCommand) {
+      try {
+        const pathCommandPath = path.resolve(this.currentPath, pathCommand);
+        const newPathCommandPath = path.resolve(
+          this.currentPath,
+          newPathCommand
+        );
+        const readableStream = createReadStream(pathCommandPath);
+        readableStream.on("error", () => {
+          this.handleOperationFail();
+        });
+        const writebleStream = createWriteStream(newPathCommandPath);
+        writebleStream.on("error", () => {
+          this.handleOperationFail();
+        });
+        const brotli = createBrotliCompress();
+
+        readableStream.pipe(brotli).pipe(writebleStream);
+      } catch (_) {
+        this.handleOperationFail();
+      }
+    } else {
+      this.handleInvalidInput();
+    }
+  }
+  async handleDecompress(command) {
+    const pathCommand = command.split(" ")[1];
+    const newPathCommand = command.split(" ")[2];
+
+    if (pathCommand && newPathCommand) {
+      try {
+        const pathCommandPath = path.resolve(this.currentPath, pathCommand);
+        const newPathCommandPath = path.resolve(
+          this.currentPath,
+          newPathCommand
+        );
+
+        const readableStream = createReadStream(pathCommandPath);
+        readableStream.on("error", () => {
+          this.handleOperationFail();
+        });
+        const writebleStream = createWriteStream(newPathCommandPath);
+        writebleStream.on("error", () => {
+          this.handleOperationFail();
+        });
+
+        const brotli = createBrotliDecompress();
+
+        readableStream.pipe(brotli).pipe(writebleStream);
+      } catch (_) {
+        this.handleOperationFail();
+      }
+    } else {
+      this.handleInvalidInput();
+    }
+  }
+
   displayGreeting() {
     stdout.write(`Welcome to the File Manager, ${this.userName}!\n`);
   }
@@ -238,6 +332,12 @@ class FileManager {
       await this.handleDeleteFile(command);
     } else if (command.startsWith("os")) {
       this.handleOSInfo(command);
+    } else if (command.startsWith("hash")) {
+      await this.handleFileHash(command);
+    } else if (command.startsWith("compress")) {
+      await this.handleCompress(command);
+    } else if (command.startsWith("decompress")) {
+      await this.handleDecompress(command);
     } else {
       this.handleInvalidInput();
     }
